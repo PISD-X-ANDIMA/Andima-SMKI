@@ -74,6 +74,40 @@ type Employee = {
   isActive: boolean;
 };
 
+type ActivityLog = {
+  id: string;
+  name: string;
+  email: string;
+  department: string;
+  departmentLabel: string;
+  role: string;
+  description: string;
+  createdAt: string;
+};
+
+const SAMPLE_ACTIVITY_LOGS: ActivityLog[] = [
+  {
+    id: "activity-1",
+    name: "Praba",
+    email: "Praba@gmail.com",
+    department: "Human Resources",
+    departmentLabel: "HRMS",
+    role: "HR",
+    description: "Issue board ccr/payment",
+    createdAt: "2026-09-29T16:00:00",
+  },
+  {
+    id: "activity-2",
+    name: "Agus",
+    email: "Agussanjaya@gmail.com",
+    department: "Finance, Accounting & Tax",
+    departmentLabel: "FINANCE",
+    role: "FINANCE",
+    description: "Transaksi",
+    createdAt: "2026-09-30T19:00:00",
+  },
+];
+
 /* SVG ICONS */
 function AccountIcon() {
   return (
@@ -131,6 +165,14 @@ function LogoutIcon() {
       <path d="M17 4H7.5C6.7 4 6 4.7 6 5.5v17c0 .8.7 1.5 1.5 1.5H17" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
       <path d="M12 14h11" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
       <path d="M19 9l5 5-5 5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ActivityUserIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" style={{ width: "15px", height: "15px", flexShrink: 0, fill: "currentColor" }}>
+      <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm0 1.5c-3.1 0-5.5 1.6-5.5 3.7V15h11v-1.8c0-2.1-2.4-3.7-5.5-3.7Z" />
     </svg>
   );
 }
@@ -204,6 +246,7 @@ export default function SmkiPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [selectedDepartment, setSelectedDepartment] = useState<string>("All");
   const [isFilterOpen, setIsFilterOpen] = useState<boolean>(false);
+  const [activitySortAscending, setActivitySortAscending] = useState<boolean>(false);
   // State untuk Dropdown Sidebar SMKI & Navigasi Tab
   const [isSmkiOpen, setIsSmkiOpen] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<string>("account-maintains");
@@ -343,6 +386,13 @@ export default function SmkiPage() {
     if (selectedDepartment === "All") return true;
     return emp.department.toLowerCase() === selectedDepartment.toLowerCase();
   });
+
+  const filteredActivityLogs = SAMPLE_ACTIVITY_LOGS
+    .filter((activity) => selectedDepartment === "All" || activity.department === selectedDepartment)
+    .sort((first, second) => {
+      const timeDifference = new Date(first.createdAt).getTime() - new Date(second.createdAt).getTime();
+      return activitySortAscending ? timeDifference : -timeDifference;
+    });
 
   // Buka Modal Konfirmasi Status
   const handleOpenStatusConfirm = (emp: Employee) => {
@@ -649,11 +699,42 @@ export default function SmkiPage() {
         <section style={{ flex: 1, height: "100vh", background: "#ffffff", display: "flex", flexDirection: "column", overflow: "hidden", boxSizing: "border-box" }}>
 
           {/* 1. TOP BAR / HEADER (PROFIL DI KANAN) */}
-          <header style={{ width: "100%", height: "56px", padding: "0 24px", background: "#ffffff", borderBottom: "1px solid #e2e8f0", color: "#0f172a", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, boxSizing: "border-box" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <header style={{ width: "100%", height: activeTab === "log-activity" ? "42px" : "56px", padding: activeTab === "log-activity" ? "0 16px" : "0 24px", background: "#ffffff", borderBottom: "1px solid #e2e8f0", color: "#0f172a", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, boxSizing: "border-box", gap: "12px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>
               <span style={{ fontSize: "13px", fontWeight: 800, color: "#0f172a" }}>ANDIMA SMKI</span>
               <span style={{ color: "#cbd5e1" }}>|</span>
-              <span style={{ fontSize: "12px", fontWeight: 600, color: "#64748b" }}>Account Maintains</span>
+              <span style={{ fontSize: "12px", fontWeight: 600, color: "#64748b", whiteSpace: "nowrap" }}>
+                {activeTab === "log-activity" ? "Log Activity" : activeTab === "log-login" ? "Log Login" : "Account Maintains"}
+              </span>
+              {activeTab === "log-activity" && (
+                <div style={{ position: "relative", marginLeft: "clamp(12px, 3vw, 32px)" }}>
+                  <button
+                    type="button"
+                    aria-expanded={isFilterOpen}
+                    onClick={() => setIsFilterOpen(!isFilterOpen)}
+                    style={{ width: "174px", height: "28px", padding: "0 10px", border: 0, borderRadius: "9px", background: "#f1f1f1", color: "#475569", display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "11px", fontWeight: 500, cursor: "pointer", boxSizing: "border-box" }}
+                  >
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {selectedDepartment === "All" ? "Select Status" : selectedDepartment}
+                    </span>
+                    <ChevronDownIcon isOpen={isFilterOpen} />
+                  </button>
+                  {isFilterOpen && (
+                    <div style={{ position: "absolute", left: 0, top: "32px", background: "#ffffff", border: "1px solid #e2e8f0", boxShadow: "0 4px 10px rgba(15,23,42,0.12)", zIndex: 30, width: "220px", overflow: "hidden" }}>
+                      {["All", ...DEPARTMENT_OPTIONS].map((department) => (
+                        <button
+                          key={department}
+                          type="button"
+                          onClick={() => { setSelectedDepartment(department); setIsFilterOpen(false); }}
+                          style={{ width: "100%", padding: "7px 10px", background: selectedDepartment === department ? "#f1f5f9" : "#ffffff", color: "#475569", border: 0, textAlign: "left", fontSize: "10px", fontWeight: 500, cursor: "pointer" }}
+                        >
+                          {department}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
@@ -674,6 +755,57 @@ export default function SmkiPage() {
           </header>
 
           {/* AREA KONTEN (FILTER + TABEL) */}
+          {activeTab === "log-activity" ? (
+            <div style={{ flex: 1, minHeight: 0, overflow: "auto", background: "#f1f3fc" }}>
+              <div style={{ minWidth: "760px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1.15fr 1.25fr 1fr 0.7fr 1fr 0.9fr", alignItems: "center", minHeight: "34px", padding: "0 18px", background: "#f8f9ff", color: "#506487", fontSize: "11px", fontWeight: 800, letterSpacing: "0.2px", borderBottom: "1px solid #e6eaf3", boxSizing: "border-box" }}>
+                  <div>EMPLOYEE&apos;S NAME</div>
+                  <div>EMAIL</div>
+                  <div>DEPARTMENT</div>
+                  <div>ROLE</div>
+                  <div>DESCRIPTION</div>
+                  <button
+                    type="button"
+                    aria-label={`Sort by date and time ${activitySortAscending ? "descending" : "ascending"}`}
+                    onClick={() => setActivitySortAscending((ascending) => !ascending)}
+                    style={{ display: "flex", alignItems: "center", justifyContent: "flex-start", gap: "3px", padding: 0, border: 0, background: "transparent", color: "inherit", font: "inherit", letterSpacing: "inherit", cursor: "pointer", whiteSpace: "nowrap" }}
+                  >
+                    DATE TIME
+                    <svg aria-hidden="true" viewBox="0 0 16 16" style={{ width: "14px", height: "14px", fill: "none", stroke: "currentColor", strokeWidth: 1.5 }}>
+                      <path d="M5 2v11m0 0L2.5 10.5M5 13l2.5-2.5M11 14V3m0 0L8.5 5.5M11 3l2.5 2.5" />
+                    </svg>
+                  </button>
+                </div>
+
+                {filteredActivityLogs.length > 0 ? (
+                  filteredActivityLogs.map((activity) => {
+                    const timestamp = new Date(activity.createdAt);
+
+                    return (
+                      <div key={activity.id} style={{ display: "grid", gridTemplateColumns: "1.15fr 1.25fr 1fr 0.7fr 1fr 0.9fr", alignItems: "center", minHeight: "48px", padding: "0 18px", background: "#ffffff", color: "#111827", fontSize: "10px", fontWeight: 650, borderBottom: "1px solid #e9edf5", boxSizing: "border-box" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "5px", minWidth: 0 }}>
+                          <ActivityUserIcon />
+                          <span>{activity.name}</span>
+                        </div>
+                        <div style={{ overflowWrap: "anywhere" }}>{activity.email}</div>
+                        <div>{activity.departmentLabel}</div>
+                        <div>{activity.role}</div>
+                        <div style={{ paddingRight: "8px" }}>{activity.description}</div>
+                        <div style={{ display: "flex", flexDirection: "column", whiteSpace: "nowrap", lineHeight: 1.25 }}>
+                          <span>{timestamp.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
+                          <span>{timestamp.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</span>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div style={{ padding: "24px 18px", background: "#ffffff", color: "#64748b", fontSize: "12px" }}>
+                    No activity found for this department.
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
           <div style={{ flex: 1, padding: "20px 24px", overflowY: "auto", boxSizing: "border-box" }}>
             
             {/* 2. TOMBOL FILTER (STYLE KAPSUL / OUTLINE SESUAI GAMBAR) */}
@@ -778,6 +910,7 @@ export default function SmkiPage() {
             </div>
 
           </div>
+          )}
         </section>
 
       {/* EDIT KARYAWAN */}
