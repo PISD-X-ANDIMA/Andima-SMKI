@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { recordLogout } from "@/query/tracklog";
 
 /* MASTER DATA OPTIONS */
 const DEPARTMENT_OPTIONS = [
@@ -367,7 +368,12 @@ export default function SmkiPage() {
 
       if (currentDate !== initialDate) {
         clearInterval(interval);
-        await supabase.auth.signOut();
+        await recordLogout();
+        const { error } = await supabase.auth.signOut();
+        if (error) {
+          alert("Gagal logout otomatis: " + error.message);
+          return;
+        }
         router.push("/login?reason=day_changed");
       }
     }, 5000); // Pengecekan setiap 5 detik
@@ -377,7 +383,12 @@ export default function SmkiPage() {
 
   // Handler Logout
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    await recordLogout();
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      alert("Gagal logout: " + error.message);
+      return;
+    }
     router.push("/login");
   };
 

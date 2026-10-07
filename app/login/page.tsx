@@ -4,6 +4,7 @@ import React, { useState, useEffect, FormEvent, ChangeEvent, Suspense } from 're
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
+import { recordLogin } from '@/query/tracklog';
 
 
 /* =========================
@@ -176,6 +177,13 @@ function LoginContent() {
       if (profileData.is_active === false) {
         setErrorMessage('Akun Anda telah dinonaktifkan. Silakan hubungi IT / HR Admin.');
         return;
+      }
+
+      try {
+        await recordLogin();
+      } catch (logError) {
+        // Riwayat gagal dicatat; jangan tampilkan error atau menghalangi login.
+        console.error('Gagal mencatat riwayat login:', logError);
       }
 
       // 4. Tentukan Route Dashboard Berdasarkan departement_id (UUID)

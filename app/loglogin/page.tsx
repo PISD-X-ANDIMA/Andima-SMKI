@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { fetchLoginLogs, recordLogout, type LoginLogRecord } from "@/query/tracklog";
 
 const IT_DEPARTMENT_UUID = "8113ab6f-d5cc-4c94-bbf6-e08047931fab";
 
@@ -86,6 +87,9 @@ export default function LogLoginPage() {
   const [currentUserFullName, setCurrentUserFullName] = useState("");
   const [isSmkiOpen, setIsSmkiOpen] = useState(true);
   const [selectedDate, setSelectedDate] = useState("");
+  const [loginLogs, setLoginLogs] = useState<LoginLogRecord[]>([]);
+  const [isLogsLoading, setIsLogsLoading] = useState(true);
+  const [logsError, setLogsError] = useState("");
 
   useEffect(() => {
     const checkAccess = async () => {
@@ -117,7 +121,38 @@ export default function LogLoginPage() {
     void checkAccess();
   }, [router]);
 
+  useEffect(() => {
+    let isCurrent = true;
+
+    const loadLoginLogs = async () => {
+      setIsLogsLoading(true);
+      setLogsError("");
+      try {
+        const logs = await fetchLoginLogs(selectedDate || undefined);
+        if (isCurrent) {
+          setLoginLogs(logs);
+        }
+      } catch (error) {
+        console.error("Gagal memuat riwayat login:", error);
+        if (isCurrent) {
+          setLoginLogs([]);
+          setLogsError(error instanceof Error ? error.message : "Gagal memuat riwayat login.");
+        }
+      } finally {
+        if (isCurrent) {
+          setIsLogsLoading(false);
+        }
+      }
+    };
+
+    void loadLoginLogs();
+    return () => {
+      isCurrent = false;
+    };
+  }, [selectedDate]);
+
   const handleLogout = async () => {
+    await recordLogout();
     const { error } = await supabase.auth.signOut();
 
     if (error) {
@@ -288,12 +323,38 @@ export default function LogLoginPage() {
               />
             </label>
           </div>
-          <div style={{ overflow: "hidden", border: "1px solid #e2e8f0", borderRadius: "6px", background: "#ffffff" }}>
-            <div style={{ padding: "12px 16px", background: "#f8fafc", color: "#64748b", fontSize: "11px", fontWeight: 800, letterSpacing: "0.5px", borderBottom: "1px solid #e2e8f0" }}>
-              LOGIN HISTORY
-            </div>
-            <div style={{ padding: "24px 16px", color: "#94a3b8", fontSize: "12px" }}>
-              No login records yet.
+          <div style={{ overflow: "auto", border: "1px solid #e2e8f0", borderRadius: "6px", background: "#ffffff" }}>
+            <div style={{ minWidth: "920px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.4fr 1.2fr 1.2fr 1fr 0.8fr 0.8fr", alignItems: "center", minHeight: "38px", padding: "0 16px", background: "#f8fafc", color: "#64748b", fontSize: "10px", fontWeight: 800, letterSpacing: "0.4px", borderBottom: "1px solid #e2e8f0" }}>
+                <div>EMPLOYEE NAME</div>
+                <div>EMAIL</div>
+                <div>POSITION</div>
+                <div>DEPARTMENT</div>
+                <div>DATE</div>
+                <div>LOGIN</div>
+                <div>LOGOUT</div>
+              </div>
+              {isLogsLoading ? (
+                <div style={{ padding: "24px 16px", color: "#64748b", fontSize: "12px" }}>Loading login records...</div>
+              ) : logsError ? (
+                <div role="alert" style={{ padding: "24px 16px", color: "#dc2626", fontSize: "12px" }}>{logsError}</div>
+              ) : loginLogs.length ? (
+                loginLogs.map((log) => (
+                  <div key={log.id} style={{ display: "grid", gridTemplateColumns: "1.2fr 1.4fr 1.2fr 1.2fr 1fr 0.8fr 0.8fr", alignItems: "center", minHeight: "48px", padding: "8px 16px", color: "#1e293b", fontSize: "11px", borderBottom: "1px solid #e9edf5", boxSizing: "border-box" }}>
+                    <div>{log.nama || "-"}</div>
+                    <div style={{ overflowWrap: "anywhere" }}>{log.email || "-"}</div>
+                    <div>{log.position || "-"}</div>
+                    <div>{log.departement || "-"}</div>
+                    <div>{new Date(`${log.tanggal}T00:00:00`).toLocaleDateString()}</div>
+                    <div>{log.waktu_login || "-"}</div>
+                    <div>{log.waktu_logout || "-"}</div>
+                  </div>
+                ))
+              ) : (
+                <div style={{ padding: "24px 16px", color: "#94a3b8", fontSize: "12px" }}>
+                  {selectedDate ? "No login records for this date." : "No login records yet."}
+                </div>
+              )}
             </div>
           </div>
         </section>

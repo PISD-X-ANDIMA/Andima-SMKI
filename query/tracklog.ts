@@ -1,90 +1,207 @@
 import { supabase } from "@/lib/supabaseClient";
 
-export async function recordLogin() {
+const LOGIN_LOG_SESSION_KEY = "b3_log_login_id";
+const LOG_TIME_ZONE = "Asia/Jakarta";
+
+function getJakartaDateTime() {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: LOG_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+
+  return {
+    tanggal: `${values.year}-${values.month}-${values.day}`,
+    waktu: `${values.hour}:${values.minute}:${values.second}`,
+  };
+}
+
+export type LoginLogRecord = {
+  id: string;
+  register_id: string | null;
+  nama: string | null;
+  email: string | null;
+  position: string | null;
+  departement: string | null;
+  tanggal: string;
+  waktu_login: string | null;
+  waktu_logout: string | null;
+};
+
+export async function fetchLoginLogs(
+  date?: string
+): Promise<LoginLogRecord[]> {
+  try {
+    const { data, error } = await supabase
+      .from("b3_log_login")
+      .select(`
+        id,
+        register_id,
+        nama,
+        email,
+        "position",
+        departement,
+        tanggal,
+        waktu_login,
+        waktu_logout
+      `);
+
+    if (error) {
+      console.error("Gagal mengambil log login:", error);
+      return [];
+    }
+
+    const logs = (data ?? []) as LoginLogRecord[];
+
+    return logs
+      .filter((log) => !date || log.tanggal === date)
+      .sort((left, right) => {
+        const dateComparison = right.tanggal.localeCompare(
+          left.tanggal
+        );
+
+        return (
+          dateComparison ||
+          (right.waktu_login ?? "").localeCompare(
+            left.waktu_login ?? ""
+          )
+        );
+      });
+  } catch (error) {
+    console.error("Error fetchLoginLogs:", error);
+    return [];
+  }
+}
+
+export async function recordLogin(): Promise<void> {
   const {
     data: { user },
     error: userError,
   } = await supabase.auth.getUser();
 
   if (userError || !user?.email) {
-    throw new Error("User belum login");
+    throw new Error(`Tidak dapat membaca pengguna yang login: ${userError?.message ?? "email pengguna tidak tersedia"}`);
   }
 
-  // Cari data pengguna di b2_register berdasarkan email
   const { data: register, error: registerError } = await supabase
     .from("b2_register")
     .select(`
-      id,
-      full_name,
-      email,
-      position_id,
-      d3_positions (
-        title,
-        department_id,
-        d3_departments (
-          name
-        )
-      )
-    `)
-    .eq("email", user.email)
+        id,
+        full_name,
+        email,
+        position_id,
+        departement_id
+      `)
+    .ilike("email", user.email)
     .single();
 
   if (registerError || !register) {
-    throw new Error("Data register pengguna tidak ditemukan");
+    throw new Error(`Gagal membaca profil b2_register: ${registerError?.message ?? "profil tidak ditemukan"}`);
   }
 
-  const position = Array.isArray(register.d3_positions)
-    ? register.d3_positions[0]
-    : register.d3_positions;
+  if (!register.position_id) {
+    throw new Error("Profil pengguna belum memiliki position_id di b2_register.");
+  }
+  if (!register.departement_id) {
+    throw new Error("Profil pengguna belum memiliki departement_id di b2_register.");
+  }
 
-  const department = Array.isArray(position?.d3_departments)
-    ? position.d3_departments[0]
-    : position?.d3_departments;
+  const { data: positionData, error: positionError } = await supabase
+    .from("d3_positions")
+    .select("title")
+    .eq("id", register.position_id)
+    .maybeSingle();
 
-  // Simpan data login ke b3_log_login
-  // tanggal dan waktu_login otomatis diisi oleh database
-  const { data, error } = await supabase
+  if (positionError || !positionData?.title) {
+    throw new Error(`Gagal membaca posisi dari d3_positions: ${positionError?.message ?? "posisi tidak ditemukan atau tidak diizinkan oleh RLS/Data API"}`);
+  }
+
+  const { data: departmentData, error: departmentError } = await supabase
+    .from("d3_departments")
+    .select("name")
+    .eq("id", register.departement_id)
+    .maybeSingle();
+
+  if (departmentError || !departmentData?.name) {
+    throw new Error(`Gagal membaca departemen dari d3_departments: ${departmentError?.message ?? "departemen tidak ditemukan atau tidak diizinkan oleh RLS/Data API"}`);
+  }
+
+  const loginTime = getJakartaDateTime();
+  const { data: log, error: logError } = await supabase
     .from("b3_log_login")
     .insert({
       register_id: register.id,
       nama: register.full_name,
       email: register.email,
-      departement: department?.name ?? null,
-      position: position?.title ?? null,
+      position: positionData.title,
+      departement: departmentData.name,
+      tanggal: loginTime.tanggal,
+      waktu_login: loginTime.waktu,
     })
-    .select()
+    .select("id")
     .single();
 
-  if (error) {
-    throw new Error(`Gagal mencatat login: ${error.message}`);
+  if (logError || !log) {
+    throw new Error(`Gagal menyimpan riwayat login: ${logError?.message ?? "ID log tidak dikembalikan"}`);
   }
 
-  return data;
+  if (typeof window !== "undefined") {
+    window.sessionStorage.setItem(LOGIN_LOG_SESSION_KEY, log.id);
+  }
 }
 
-export async function recordLogout() {
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+export async function recordLogout(): Promise<void> {
+  try {
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
 
-  if (userError || !user?.email) {
-    return;
-  }
+    if (userError || !user?.email) {
+      return;
+    }
 
-  // Isi waktu logout untuk login yang belum memiliki waktu logout
-  const { error } = await supabase
-    .from("b3_log_login")
-    .update({
-      waktu_logout: new Date().toLocaleTimeString("en-GB", {
-        timeZone: "Asia/Jakarta",
-        hour12: false,
-      }),
-    })
-    .eq("email", user.email)
-    .is("waktu_logout", null);
+    const loginLogId =
+      typeof window === "undefined"
+        ? null
+        : window.sessionStorage.getItem(
+            LOGIN_LOG_SESSION_KEY
+          );
 
-  if (error) {
-    throw new Error(`Gagal mencatat logout: ${error.message}`);
+    if (!loginLogId) {
+      return;
+    }
+
+    const { waktu } = getJakartaDateTime();
+    const { error } = await supabase
+      .from("b3_log_login")
+      .update({
+        waktu_logout: waktu,
+      })
+      .eq("id", loginLogId)
+      .eq("email", user.email)
+      .is("waktu_logout", null);
+
+    if (error) {
+      console.error(
+        "Gagal mencatat logout:",
+        error
+      );
+      return;
+    }
+
+    if (typeof window !== "undefined") {
+      window.sessionStorage.removeItem(
+        LOGIN_LOG_SESSION_KEY
+      );
+    }
+  } catch (error) {
+    console.error("Error recordLogout:", error);
   }
 }
