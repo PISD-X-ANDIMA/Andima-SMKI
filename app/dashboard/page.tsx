@@ -117,10 +117,23 @@ function EditIcon() {
 
 function DisableIcon({ active }: { active: boolean }) {
   return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" style={{ width: "18px", height: "18px", display: "block", color: active ? "#64748b" : "#ef4444", fill: "currentColor" }}>
-      <path d="M8.2 8.3a3.2 3.2 0 1 1 6.4 0 3.2 3.2 0 0 1-6.4 0Z" fill="currentColor" />
-      <path d="M5.7 19.2c.4-3.1 2.3-5 5.7-5s5.3 1.9 5.7 5" fill="currentColor" />
-      {!active && <path d="M5 5l14 14" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" />}
+    <svg 
+      viewBox="0 0 24 24" 
+      aria-hidden="true" 
+      style={{ 
+        width: "18px", 
+        height: "18px", 
+        display: "block", 
+        color: active ? "#64748b" : "#ef4444", // Abu-abu jika aktif, merah jika nonaktif
+        fill: "none",
+        stroke: "currentColor",
+        strokeWidth: 2,
+        strokeLinecap: "round",
+        strokeLinejoin: "round"
+      }}
+    >
+      <circle cx="12" cy="12" r="9" />
+      <line x1="5.7" y1="5.7" x2="18.3" y2="18.3" />
     </svg>
   );
 }
@@ -208,7 +221,7 @@ export default function SmkiPage() {
   const [isSmkiOpen, setIsSmkiOpen] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<string>("account-maintains");
   const [currentUserFullName, setCurrentUserFullName] = useState<string>("Loading...");
-
+  
   // State untuk Modal Edit
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [editForm, setEditForm] = useState<{
@@ -232,6 +245,14 @@ export default function SmkiPage() {
   // State untuk Modal Konfirmasi Status
   const [statusConfirmEmployee, setStatusConfirmEmployee] = useState<Employee | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>("");
+
+  // State untuk pencarian
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [currentPageNum, setCurrentPageNum] = useState<number>(1);
+  const itemsPerPage = 8;
+    /* STATE UNTUK POP-UP NOTIFIKASI SUKSES (MODAL) */
+  const [isSuccessModalOpen, setIsSuccessModalOpen] = useState<boolean>(false);
+  const [successEmployeeName, setSuccessEmployeeName] = useState<string>("");
 
   /* 1. FETCH DATA KARYAWAN DARI TABEL SUPABASE b2_register */
   const fetchEmployeesFromSupabase = async () => {
@@ -297,7 +318,8 @@ export default function SmkiPage() {
       }
 
       if (userData.full_name) {
-      setCurrentUserFullName(userData.full_name);
+        const firstName = userData.full_name.trim().split(" ")[0];
+        setCurrentUserFullName(firstName);
       }
 
       await fetchEmployeesFromSupabase();
@@ -340,9 +362,19 @@ export default function SmkiPage() {
 
   // Handler Filter Department
   const filteredEmployees = employees.filter((emp) => {
-    if (selectedDepartment === "All") return true;
-    return emp.department.toLowerCase() === selectedDepartment.toLowerCase();
+    const matchesDepartment = selectedDepartment === "All" || emp.department.toLowerCase() === selectedDepartment.toLowerCase();
+    const matchesSearch = 
+      emp.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      emp.email.toLowerCase().includes(searchQuery.toLowerCase());
+
+    return matchesDepartment && matchesSearch;
   });
+
+  // Pagination Slicing (Tambahkan ini)
+  const indexOfLastItem = currentPageNum * itemsPerPage;
+  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+  const currentEmployees = filteredEmployees.slice(indexOfFirstItem, indexOfLastItem);
+  const totalPages = Math.ceil(filteredEmployees.length / itemsPerPage) || 1;
 
   // Buka Modal Konfirmasi Status
   const handleOpenStatusConfirm = (emp: Employee) => {
@@ -375,6 +407,8 @@ export default function SmkiPage() {
           return emp;
         })
       );
+      setSuccessEmployeeName(statusConfirmEmployee.name);
+      setIsSuccessModalOpen(true);
     } catch (err) {
       alert("Terjadi kesalahan sistem saat memperbarui status.");
     } finally {
@@ -490,7 +524,9 @@ export default function SmkiPage() {
       }
 
       await fetchEmployeesFromSupabase();
+      setSuccessEmployeeName(editForm.name.trim());
       setEditingEmployee(null);
+      setIsSuccessModalOpen(true);
     } catch (err) {
       setErrorMessage("Terjadi kesalahan sistem saat menyimpan data.");
     }
@@ -676,51 +712,110 @@ export default function SmkiPage() {
           {/* AREA KONTEN (FILTER + TABEL) */}
           <div style={{ flex: 1, padding: "20px 24px", overflowY: "auto", boxSizing: "border-box" }}>
             
-            {/* 2. TOMBOL FILTER (STYLE KAPSUL / OUTLINE SESUAI GAMBAR) */}
-            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "14px", position: "relative" }}>
-              <button
-                onClick={() => setIsFilterOpen(!isFilterOpen)}
-                style={{
-                  width: "300px",
-                  height: "36px",
-                  padding: "0 16px",
-                  border: "1px solid #94a3b8",
-                  borderRadius: "20px",
-                  background: "#ffffff",
-                  color: "#64748b",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  fontSize: "13px",
-                  fontWeight: 500,
-                  cursor: "pointer",
-                  boxSizing: "border-box",
-                  outline: "none",
-                }}
-              >
-                <span>{selectedDepartment === "All" ? "Select Status" : selectedDepartment}</span>
-                <ChevronDownIcon />
-              </button>
+            {/* SEARCH BAR & FILTER BERJEJER DI KIRI */}
+            <div style={{ display: "flex", justifyContent: "flex-start", alignItems: "center", gap: "12px", marginBottom: "14px", position: "relative" }}>
+              
+              {/* KOTAK SEARCH BAR (DIBATASI UKURANNYA SUPAYA TIDAK KEPANJANGAN) */}
+              <div style={{
+                position: "relative",
+                width: "400px", // Atur panjang pas di sini
+                height: "36px",
+                backgroundColor: "#f8fafc",
+                border: "1px solid #94a3b8",
+                borderRadius: "20px",
+                display: "flex",
+                alignItems: "center",
+                padding: "0 14px",
+                boxSizing: "border-box",
+                flexShrink: 0,
+              }}>
+                <svg viewBox="0 0 24 24" style={{ width: "16px", height: "16px", fill: "none", stroke: "#94a3b8", strokeWidth: 2, marginRight: "8px", flexShrink: 0 }}>
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
 
-              {isFilterOpen && (
-                <div style={{ position: "absolute", right: 0, top: "42px", background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "12px", boxShadow: "0 10px 15px -3px rgba(0,0,0,0.1)", zIndex: 30, width: "220px", overflow: "hidden" }}>
+                <input
+                  type="text"
+                  placeholder="Search by name or email..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  style={{
+                    width: "100%",
+                    border: 0,
+                    background: "transparent",
+                    outline: "none",
+                    fontSize: "13px",
+                    color: "#0f172a",
+                  }}
+                />
+
+                {searchQuery && (
                   <button
-                    onClick={() => { setSelectedDepartment("All"); setIsFilterOpen(false); }}
-                    style={{ width: "100%", padding: "10px 16px", background: selectedDepartment === "All" ? "#f1f5f9" : "transparent", color: selectedDepartment === "All" ? "#0f172a" : "#475569", border: 0, textAlign: "left", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}
+                    onClick={() => setSearchQuery("")}
+                    style={{
+                      background: "transparent",
+                      border: 0,
+                      cursor: "pointer",
+                      color: "#94a3b8",
+                      fontSize: "14px",
+                      padding: 0,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
                   >
-                    All
+                    ✕
                   </button>
-                  {DEPARTMENT_OPTIONS.map((dept) => (
+                )}
+              </div>
+
+              {/* TOMBOL FILTER DEPARTEMEN (POSISI SEBELAH KANAN SEARCH) */}
+              <div style={{ position: "relative" }}>
+                <button
+                  onClick={() => setIsFilterOpen(!isFilterOpen)}
+                  style={{
+                    width: "300px",
+                    height: "36px",
+                    padding: "0 16px",
+                    border: "1px solid #94a3b8",
+                    borderRadius: "20px",
+                    background: "#ffffff",
+                    color: "#64748b",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    fontSize: "13px",
+                    fontWeight: 500,
+                    cursor: "pointer",
+                    boxSizing: "border-box",
+                    outline: "none",
+                  }}
+                >
+                  <span>{selectedDepartment === "All" ? "Select Departemen" : selectedDepartment}</span>
+                  <ChevronDownIcon />
+                </button>
+
+                {isFilterOpen && (
+                  <div style={{ position: "absolute", left: 0, top: "42px", background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "12px", boxShadow: "0 10px 15px -3px rgba(0,0,0,0.1)", zIndex: 30, width: "220px", overflow: "hidden" }}>
                     <button
-                      key={dept}
-                      onClick={() => { setSelectedDepartment(dept); setIsFilterOpen(false); }}
-                      style={{ width: "100%", padding: "10px 16px", background: selectedDepartment === dept ? "#f1f5f9" : "transparent", color: selectedDepartment === dept ? "#0f172a" : "#475569", border: 0, textAlign: "left", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}
+                      onClick={() => { setSelectedDepartment("All"); setIsFilterOpen(false); }}
+                      style={{ width: "100%", padding: "10px 16px", background: selectedDepartment === "All" ? "#f1f5f9" : "transparent", color: selectedDepartment === "All" ? "#0f172a" : "#475569", border: 0, textAlign: "left", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}
                     >
-                      {dept}
+                      All
                     </button>
-                  ))}
-                </div>
-              )}
+                    {DEPARTMENT_OPTIONS.map((dept) => (
+                      <button
+                        key={dept}
+                        onClick={() => { setSelectedDepartment(dept); setIsFilterOpen(false); }}
+                        style={{ width: "100%", padding: "10px 16px", background: selectedDepartment === dept ? "#f1f5f9" : "transparent", color: selectedDepartment === dept ? "#0f172a" : "#475569", border: 0, textAlign: "left", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}
+                      >
+                        {dept}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
             </div>
 
             {/* 3. TABEL DATA (DI BAWAH FILTER) */}
@@ -734,7 +829,7 @@ export default function SmkiPage() {
               </div>
 
               {filteredEmployees.length > 0 ? (
-                filteredEmployees.map((employee) => (
+                currentEmployees.map((employee) => (
                   <div key={employee.id} style={{ display: "grid", gridTemplateColumns: "1.3fr 1.3fr 1.2fr 1.2fr 0.6fr", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid #f1f5f9", fontSize: "12px", color: !employee.isActive ? "#94a3b8" : "#1e293b", background: "#ffffff" }}>
                     
                     {/* Nama & Initial Karyawan */}
@@ -776,9 +871,119 @@ export default function SmkiPage() {
                 </div>
               )}
             </div>
+            
+            {/* PAGINATION DENGAN TRANSISI HALUS (SMOOTH FADE TRANSITION) */}
+            {filteredEmployees.length > 0 && (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "16px", padding: "0 4px", flexShrink: 0 }}>
+              <div style={{ fontSize: "12px", color: "#64748b" }}>
+                Showing <b>{indexOfFirstItem + 1}-{Math.min(indexOfLastItem, filteredEmployees.length)}</b> of <b>{filteredEmployees.length}</b> employees
+              </div>
 
-          </div>
-        </section>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                
+                {/* Tombol Previous dengan Ikon Panah Kiri */}
+                <button
+                  onClick={() => setCurrentPageNum((prev) => Math.max(prev - 1, 1))}
+                  disabled={currentPageNum === 1}
+                  style={{
+                    padding: "8px 16px",
+                    borderRadius: "10px",
+                    border: "1px solid #cbd5e1",
+                    background: currentPageNum === 1 ? "#f8fafc" : "#ffffff",
+                    color: currentPageNum === 1 ? "#94a3b8" : "#1e293b",
+                    fontSize: "13px",
+                    fontWeight: 600,
+                    cursor: currentPageNum === 1 ? "not-allowed" : "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    transition: "all 0.2s ease"
+                  }}
+                >
+                  <svg viewBox="0 0 24 24" style={{ width: "14px", height: "14px", fill: "none", stroke: "currentColor", strokeWidth: 2.5, strokeLinecap: "round", strokeLinejoin: "round" }}>
+                    <polyline points="15 18 9 12 15 6" />
+                  </svg>
+                  Previous
+                </button>
+
+                {/* 3 Kotak Angka Halaman */}
+                {(() => {
+                  let startPage = 1;
+
+                  if (totalPages <= 3) {
+                    startPage = 1;
+                  } else if (currentPageNum === 1) {
+                    startPage = 1;
+                  } else if (currentPageNum === totalPages) {
+                    startPage = totalPages - 2;
+                  } else {
+                    startPage = currentPageNum - 1;
+                  }
+
+                  const visiblePages = [];
+                  for (let i = startPage; i < startPage + Math.min(3, totalPages); i++) {
+                    visiblePages.push(i);
+                  }
+
+                  return visiblePages.map((pageNum) => {
+                    const isActive = currentPageNum === pageNum;
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => setCurrentPageNum(pageNum)}
+                        style={{
+                          width: "36px",
+                          height: "36px",
+                          borderRadius: "10px",
+                          border: isActive ? "none" : "1px solid #cbd5e1",
+                          background: isActive ? "#2563eb" : "#ffffff",
+                          color: isActive ? "#ffffff" : "#1e293b",
+                          fontSize: "13px",
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          transition: "all 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
+                          boxShadow: isActive ? "0 4px 12px rgba(37, 99, 235, 0.3)" : "none",
+                        }}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  });
+                })()}
+
+                {/* Tombol Next dengan Ikon Panah Kanan */}
+                <button
+                  onClick={() => setCurrentPageNum((prev) => Math.min(prev + 1, totalPages))}
+                  disabled={currentPageNum === totalPages}
+                  style={{
+                    padding: "8px 16px",
+                    borderRadius: "10px",
+                    border: "1px solid #cbd5e1",
+                    background: currentPageNum === totalPages ? "#f8fafc" : "#ffffff",
+                    color: currentPageNum === totalPages ? "#94a3b8" : "#1e293b",
+                    fontSize: "13px",
+                    fontWeight: 600,
+                    cursor: currentPageNum === totalPages ? "not-allowed" : "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    transition: "all 0.2s ease"
+                  }}
+                >
+                  Next
+                  <svg viewBox="0 0 24 24" style={{ width: "14px", height: "14px", fill: "none", stroke: "currentColor", strokeWidth: 2.5, strokeLinecap: "round", strokeLinejoin: "round" }}>
+                    <polyline points="9 18 15 12 9 6" />
+                  </svg>
+                </button>
+
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
 
       {/* EDIT KARYAWAN */}
       {editingEmployee && (
@@ -951,6 +1156,87 @@ export default function SmkiPage() {
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {isSuccessModalOpen && (
+        <div style={{
+          position: "fixed",
+          inset: 0,
+          backgroundColor: "rgba(0, 0, 0, 0.5)",
+          backdropFilter: "blur(4px)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 10000,
+        }}>
+          <div style={{
+            width: "90%",
+            maxWidth: "320px",
+            backgroundColor: "#ffffff",
+            borderRadius: "16px",
+            padding: "24px 20px",
+            boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.15)",
+            textAlign: "center",
+            boxSizing: "border-box",
+          }}>
+            <div style={{
+              width: "52px",
+              height: "52px",
+              borderRadius: "50%",
+              backgroundColor: "#d1fae5",
+              color: "#10b981",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              margin: "0 auto 14px auto",
+              flexShrink: 0,
+            }}>
+              <svg viewBox="0 0 24 24" style={{ width: "26px", height: "26px", fill: "none", stroke: "currentColor", strokeWidth: 3.5, strokeLinecap: "round", strokeLinejoin: "round" }}>
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </div>
+
+            <h2 style={{
+              margin: "0 0 6px 0",
+              fontSize: "17px",
+              fontWeight: 800,
+              color: "#0f172a",
+              fontFamily: "sans-serif",
+            }}>
+              Data Berhasil Diperbarui
+            </h2>
+
+            {/* TEKS DESKRIPSI DENGAN NAMA AKUN YANG DINAMIS */}
+            <p style={{
+              margin: "0 0 20px 0",
+              fontSize: "12px",
+              color: "#64748b",
+              lineHeight: "1.5",
+              fontWeight: 500,
+            }}>
+              Perubahan pada akun <b>{successEmployeeName}</b> telah berhasil disimpan ke database.
+            </p>
+
+            <button
+              type="button"
+              onClick={() => setIsSuccessModalOpen(false)}
+              style={{
+                width: "100%",
+                padding: "10px 16px",
+                backgroundColor: "#2563eb",
+                color: "#ffffff",
+                border: 0,
+                borderRadius: "10px",
+                fontSize: "14px",
+                fontWeight: 700,
+                cursor: "pointer",
+                boxShadow: "0 4px 12px rgba(37, 99, 235, 0.3)",
+              }}
+            >
+              Yes
+            </button>
           </div>
         </div>
       )}
