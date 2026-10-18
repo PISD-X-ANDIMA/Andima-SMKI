@@ -1,8 +1,11 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { ListFilter, Search, X } from 'lucide-react';
+import Pagination from '@/components/pagination';
+import { getActivities, getActivityById, matchesActivity, type ActivityLog } from '@/query/activity';
 
 /* MASTER DATA OPTIONS */
 const DEPARTMENT_OPTIONS = [
@@ -74,20 +77,6 @@ type Employee = {
   isActive: boolean;
 };
 
-type ActivityLog = {
-  id: string;
-  name: string;
-  email: string;
-  department: string;
-  departmentLabel: string;
-  role: string;
-  location: string;
-  description: string;
-  createdAt: string;
-};
-
-
-
 /* SVG ICONS */
 function AccountIcon() {
   return (
@@ -145,14 +134,6 @@ function LogoutIcon() {
       <path d="M17 4H7.5C6.7 4 6 4.7 6 5.5v17c0 .8.7 1.5 1.5 1.5H17" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
       <path d="M12 14h11" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
       <path d="M19 9l5 5-5 5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function ActivityUserIcon() {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" style={{ width: "15px", height: "15px", flexShrink: 0, fill: "currentColor" }}>
-      <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm0 1.5c-3.1 0-5.5 1.6-5.5 3.7V15h11v-1.8c0-2.1-2.4-3.7-5.5-3.7Z" />
     </svg>
   );
 }
@@ -230,7 +211,15 @@ export default function SmkiPage() {
   const [activityLoading, setActivityLoading] = useState(true);
   const [activityError, setActivityError] = useState('');
   const [activityReload, setActivityReload] = useState(0);
-  const [activitySortAscending, setActivitySortAscending] = useState<boolean>(false);
+  const [activityPage, setActivityPage] = useState(1);
+  const activityPageSize = 10;
+  const [activityTotal, setActivityTotal] = useState(0);
+  const [activitySearch, setActivitySearch] = useState('');
+  const [activityStartDate, setActivityStartDate] = useState('');
+  const [activityEndDate, setActivityEndDate] = useState('');
+  const [draftStartDate, setDraftStartDate] = useState('');
+  const [draftEndDate, setDraftEndDate] = useState('');
+  const dateRangeDialogRef = useRef<HTMLDialogElement>(null);
   // State untuk Dropdown Sidebar SMKI & Navigasi Tab
   const [isSmkiOpen, setIsSmkiOpen] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<string>("account-maintains");
@@ -335,60 +324,51 @@ export default function SmkiPage() {
   }, [router]);
 
   useEffect(() => {
-    if (activeTab !== 'log-activity') return;
-    const controller = new AbortController();
-    async function loadActivity() {
-      setActivityLoading(true);
-      setActivityError('');
-      setActivityLogs([]);
+    if (isLoading || activeTab !== 'log-activity') return;
+    let disposed = false;
+    let revision = 0;
+    const filters = {
+      page: activityPage, pageSize: activityPageSize, search: activitySearch,
+      startDate: activityStartDate, endDate: activityEndDate,
+      ascending: Boolean(activityStartDate),
+      departmentId: selectedDepartment === 'All' ? undefined : DEPARTMENT_UUID_MAP[selectedDepartment],
+    };
+    async function loadActivity(showLoading = true) {
+      const request = ++revision;
+      if (showLoading) { setActivityLoading(true); setActivityError(''); }
       try {
-        const logs: ActivityLog[] = [];
-        const pageSize = 500;
-        for (let offset = 0; ; offset += pageSize) {
-          // Read all described activities, without filtering by login identity or role.
-          const { data, error } = await supabase.from('b1_activity')
-            .select('id, name, email, department_name, position, location, description, date, time, created_at')
-            .not('description', 'is', null)
-            .neq('description', '')
-            .order('created_at', { ascending: false })
-            .order('id', { ascending: false })
-            .range(offset, offset + pageSize - 1)
-            .abortSignal(controller.signal);
-          if (controller.signal.aborted) return;
-          if (error) throw error;
-          const batch = data ?? [];
-          for (const row of batch) {
-            if (typeof row.description !== 'string' || !row.description.trim()) continue;
-            const eventTime = row.date && row.time ? `${row.date}T${row.time}+07:00` : '';
-            const createdAt = eventTime && Number.isFinite(Date.parse(eventTime)) ? eventTime : row.created_at;
-            logs.push({
-              id: String(row.id),
-              name: row.name || '-',
-              email: row.email || '-',
-              department: row.department_name || '-',
-              departmentLabel: row.department_name || '-',
-              role: row.position || '-',
-              location: row.location?.trim() || '-',
-              description: row.description.trim(),
-              createdAt: createdAt && Number.isFinite(Date.parse(createdAt)) ? createdAt : '',
-            });
-          }
-          if (batch.length < pageSize) break;
-        }
-        if (!controller.signal.aborted) setActivityLogs(logs);
+        const result = await getActivities(filters);
+        if (disposed || request !== revision) return;
+        const lastPage = Math.max(1, Math.ceil(result.total / activityPageSize));
+        if (activityPage > lastPage) { setActivityPage(lastPage); return; }
+        setActivityLogs(result.rows);
+        setActivityTotal(result.total);
+        setActivityError('');
       } catch (error) {
-        if (!controller.signal.aborted) {
-          const message = error && typeof error === 'object' && 'message' in error
-            ? String(error.message) : 'Koneksi database gagal.';
-          setActivityError(`Gagal membaca b1_activity: ${message}`);
+        if (!disposed && request === revision) {
+          setActivityError(`Gagal membaca b1_activity: ${error instanceof Error ? error.message : 'Koneksi database gagal.'}`);
         }
       } finally {
-        if (!controller.signal.aborted) setActivityLoading(false);
+        if (!disposed && request === revision) setActivityLoading(false);
       }
     }
+    const channel = supabase.channel('smki-log-activity')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'b1_activity' }, (payload) => {
+        void (async () => {
+          try {
+            const activity = await getActivityById(String(payload.new.id));
+            if (disposed || !activity || !matchesActivity(activity, filters)) return;
+            await loadActivity(false);
+          } catch { console.error('Gagal memperbarui Log Activity melalui Realtime.'); }
+        })();
+      })
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED' && !disposed) void loadActivity(false);
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') console.error('Koneksi Realtime Log Activity gagal.');
+      });
     void loadActivity();
-    return () => controller.abort();
-  }, [activeTab, activityReload]);
+    return () => { disposed = true; void supabase.removeChannel(channel); };
+  }, [isLoading, activeTab, activityReload, activityPage, activityPageSize, activitySearch, activityStartDate, activityEndDate, selectedDepartment]);
 
   /* 3. LOGIKA AUTO-LOGOUT SAAT BERGANTI HARI */
   useEffect(() => {
@@ -427,12 +407,12 @@ export default function SmkiPage() {
     return emp.department.toLowerCase() === selectedDepartment.toLowerCase();
   });
 
-  const filteredActivityLogs = activityLogs
-    .filter((activity) => selectedDepartment === "All" || activity.department === selectedDepartment)
-    .sort((first, second) => {
-      const timeDifference = (Date.parse(first.createdAt) || 0) - (Date.parse(second.createdAt) || 0);
-      return activitySortAscending ? timeDifference : -timeDifference;
-    });
+  const activityTotalPages = Math.max(1, Math.ceil(activityTotal / activityPageSize));
+  const filterDateLabel = (date: string) => date.split('-').reverse().join('/');
+  const activityRangeLabel = activityStartDate && activityEndDate
+    ? `${filterDateLabel(activityStartDate)} - ${filterDateLabel(activityEndDate)}`
+    : activityStartDate ? `Mulai ${filterDateLabel(activityStartDate)}`
+      : activityEndDate ? `Sampai ${filterDateLabel(activityEndDate)}` : '';
 
   // Buka Modal Konfirmasi Status
   const handleOpenStatusConfirm = (emp: Employee) => {
@@ -755,7 +735,7 @@ export default function SmkiPage() {
                     style={{ width: "174px", height: "28px", padding: "0 10px", border: 0, borderRadius: "9px", background: "#f1f1f1", color: "#475569", display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "11px", fontWeight: 500, cursor: "pointer", boxSizing: "border-box" }}
                   >
                     <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {selectedDepartment === "All" ? "Select Status" : selectedDepartment}
+                      {selectedDepartment === "All" ? "All Departments" : selectedDepartment}
                     </span>
                     <ChevronDownIcon isOpen={isFilterOpen} />
                   </button>
@@ -765,10 +745,10 @@ export default function SmkiPage() {
                         <button
                           key={department}
                           type="button"
-                          onClick={() => { setSelectedDepartment(department); setIsFilterOpen(false); }}
+                          onClick={() => { setSelectedDepartment(department); setActivityPage(1); setIsFilterOpen(false); }}
                           style={{ width: "100%", padding: "7px 10px", background: selectedDepartment === department ? "#f1f5f9" : "#ffffff", color: "#475569", border: 0, textAlign: "left", fontSize: "10px", fontWeight: 500, cursor: "pointer" }}
                         >
-                          {department}
+                          {department === "All" ? "All Departments" : department}
                         </button>
                       ))}
                     </div>
@@ -796,82 +776,135 @@ export default function SmkiPage() {
 
           {/* AREA KONTEN (FILTER + TABEL) */}
           {activeTab === "log-activity" ? (
-            <div style={{ flex: 1, minHeight: 0, overflow: "auto", background: "#f1f3fc" }}>
-              <table aria-label="Log Activity SMKI" className="w-full min-w-[1200px] table-fixed border-collapse text-left [&_th]:px-4 [&_th]:py-3 [&_th]:align-top [&_td]:px-4 [&_td]:py-4 [&_td]:align-top [&_td]:[overflow-wrap:anywhere]">
-                <colgroup>
-                  <col style={{ width: "14%" }} />
-                  <col style={{ width: "18%" }} />
-                  <col style={{ width: "15%" }} />
-                  <col style={{ width: "16%" }} />
-                  <col style={{ width: "10%" }} />
-                  <col style={{ width: "17%" }} />
-                  <col style={{ width: "10%" }} />
-                </colgroup>
-                <thead className="sticky top-0 z-10 bg-[#f8f9ff] text-[11px] font-extrabold tracking-[0.2px] text-[#506487]">
-                <tr className="border-b border-[#e6eaf3]">
-                  <th scope="col">EMPLOYEE&apos;S NAME</th>
-                  <th scope="col">EMAIL</th>
-                  <th scope="col">DEPARTMENT</th>
-                  <th scope="col">ROLE</th>
-                  <th scope="col">LOCATION</th>
-                  <th scope="col">DESCRIPTION</th>
-                  <th scope="col" aria-sort={activitySortAscending ? "ascending" : "descending"}>
-                  <button
-                    type="button"
-                    aria-label={`Sort by date and time ${activitySortAscending ? "descending" : "ascending"}`}
-                    onClick={() => setActivitySortAscending((ascending) => !ascending)}
-                    style={{ display: "flex", alignItems: "center", justifyContent: "flex-start", gap: "3px", padding: 0, border: 0, background: "transparent", color: "inherit", font: "inherit", letterSpacing: "inherit", cursor: "pointer", whiteSpace: "nowrap" }}
-                  >
-                    DATE TIME
-                    <svg aria-hidden="true" viewBox="0 0 16 16" style={{ width: "14px", height: "14px", fill: "none", stroke: "currentColor", strokeWidth: 1.5 }}>
-                      <path d="M5 2v11m0 0L2.5 10.5M5 13l2.5-2.5M11 14V3m0 0L8.5 5.5M11 3l2.5 2.5" />
-                    </svg>
-                  </button>
-                  </th>
-                </tr>
-                </thead>
-                <tbody className="bg-white text-xs leading-relaxed text-[#111827]">
-
-                {activityLoading ? (
-                  <tr><td colSpan={7}><div role="status" className="text-slate-500">Memuat Log Activity...</div></td></tr>
-                ) : activityError ? (
-                  <tr><td colSpan={7}><div role="alert" className="text-red-600">
-                    <p>{activityError}</p>
-                    <button type="button" onClick={() => setActivityReload((value) => value + 1)} className="mt-2 cursor-pointer text-blue-600">Coba lagi</button>
-                  </div></td></tr>
-                ) : filteredActivityLogs.length > 0 ? (
-                  filteredActivityLogs.map((activity) => {
-                    const timestamp = new Date(activity.createdAt);
-
-                    return (
-                      <tr key={activity.id} className="border-b border-[#e9edf5] hover:bg-slate-50">
-                        <td className="font-semibold"><div style={{ display: "flex", alignItems: "flex-start", gap: "8px", minWidth: 0 }}>
-                          <span className="mt-0.5 shrink-0">
-                          <ActivityUserIcon />
-                          </span>
-                          <span className="min-w-0">{activity.name}</span>
-                        </div></td>
-                        <td>{activity.email}</td>
-                        <td>{activity.departmentLabel}</td>
-                        <td>{activity.role}</td>
-                        <td>{activity.location}</td>
-                        <td className="whitespace-pre-line">{activity.description}</td>
-                        <td><div style={{ display: "flex", flexDirection: "column", whiteSpace: "nowrap" }}>
-                          <span>{activity.createdAt ? timestamp.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "Asia/Jakarta" }) : "-"}</span>
-                          <span>{activity.createdAt ? timestamp.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Jakarta" }) : "-"}</span>
-                        </div></td>
-                      </tr>
-                    );
-                  })
-                ) : (
-                  <tr><td colSpan={7} className="text-slate-500">
-                    Tidak ada aktivitas dengan deskripsi untuk departemen ini.
-                  </td></tr>
-                )}
-                </tbody>
-              </table>
+          <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "20px 24px", boxSizing: "border-box" }}>
+            <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs mb-5 flex flex-wrap items-center gap-3 text-xs text-slate-600">
+                <button
+                  type="button"
+                  aria-haspopup="dialog"
+                  onClick={() => { setDraftStartDate(activityStartDate); setDraftEndDate(activityEndDate); dateRangeDialogRef.current?.showModal(); }}
+                  className={`flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border bg-white px-3 text-xs font-medium focus-visible:outline-2 focus-visible:outline-blue-500 ${activityStartDate || activityEndDate ? 'border-blue-300 text-blue-700' : 'border-slate-200 text-slate-500 hover:bg-slate-50'}`}
+                >
+                  <ListFilter aria-hidden="true" className="h-3.5 w-3.5" />Filters
+                  {(activityStartDate || activityEndDate) && <span aria-label="Filter tanggal aktif" className="h-1.5 w-1.5 rounded-full bg-blue-600" />}
+                </button>
+                <dialog
+                  ref={dateRangeDialogRef}
+                  aria-labelledby="activity-date-range-title"
+                  className="fixed inset-0 m-auto w-[480px] max-w-[calc(100vw-2rem)] rounded-xl border border-slate-200 bg-white p-6 text-[#555555] shadow-xl backdrop:bg-slate-900/30"
+                  onClick={(event) => {
+                    if (event.target !== event.currentTarget) return;
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) event.currentTarget.close();
+                  }}
+                >
+                  <form onSubmit={(event) => {
+                    event.preventDefault();
+                    if (draftStartDate && draftEndDate && draftStartDate > draftEndDate) return;
+                    setActivityStartDate(draftStartDate); setActivityEndDate(draftEndDate); setActivityPage(1);
+                    dateRangeDialogRef.current?.close();
+                  }}>
+                    <h2 id="activity-date-range-title" className="text-[28px] font-bold leading-tight text-black">Filter</h2>
+                    <p className="mt-1.5 text-sm text-[#707070]">Pilih rentang tanggal aktivitas.</p>
+                    <div className="mt-5">
+                      <div role="group" aria-label="Rentang tanggal" className="grid grid-cols-1 gap-4 min-[440px]:grid-cols-2">
+                        <label className="block min-w-0">
+                          <span className="mb-2 block text-sm font-medium text-slate-700">Tanggal mulai</span>
+                          <input type="date" value={draftStartDate} onChange={(event) => {
+                            const start = event.target.value;
+                            setDraftStartDate(start);
+                            if (start && draftEndDate && start > draftEndDate) setDraftEndDate('');
+                          }} className="h-11 w-full min-w-0 rounded-lg border border-slate-300 bg-slate-50 px-3 text-sm text-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 [color-scheme:light]" />
+                        </label>
+                        <label className="block min-w-0">
+                          <span className="mb-2 block text-sm font-medium text-slate-700">Tanggal akhir</span>
+                          <input type="date" value={draftEndDate} min={draftStartDate || undefined} onChange={(event) => setDraftEndDate(event.target.value)} className="h-11 w-full min-w-0 rounded-lg border border-slate-300 bg-slate-50 px-3 text-sm text-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 [color-scheme:light]" />
+                        </label>
+                      </div>
+                    </div>
+                    {draftStartDate && draftEndDate && draftStartDate > draftEndDate && <p role="alert" className="mt-2 text-xs text-red-600">Tanggal akhir harus sama atau setelah tanggal mulai.</p>}
+                    <div className="mt-8 grid grid-cols-[1fr_1.4fr] gap-4">
+                      <button type="button" onClick={() => { setActivityStartDate(''); setActivityEndDate(''); setDraftStartDate(''); setDraftEndDate(''); setActivityPage(1); }} className="h-12 cursor-pointer rounded-lg border border-[#B8B8B8] bg-white text-base font-semibold text-[#555555] hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-blue-500">Reset</button>
+                      <button type="submit" disabled={Boolean(draftStartDate && draftEndDate && draftStartDate > draftEndDate)} className="h-12 cursor-pointer rounded-lg bg-[#386BF6] text-base font-semibold text-white hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:opacity-40">Apply</button>
+                    </div>
+                  </form>
+                </dialog>
+                <div className="relative flex-1 min-w-[280px]">
+                  <Search aria-hidden="true" className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input type="search" aria-label="Cari Log Activity berdasarkan nama, email, action, atau deskripsi" placeholder="Search by Employee's Name or Email" value={activitySearch} onChange={(event) => { setActivitySearch(event.target.value); setActivityPage(1); }} className="w-full h-10 pl-10 pr-10 bg-[#f1f3fe] text-xs font-medium text-slate-700 placeholder-slate-400 rounded-xl border border-transparent focus:border-purple-300 focus:bg-white focus:outline-none transition-all [&::-webkit-search-cancel-button]:hidden" />
+                  {activitySearch && <button type="button" aria-label="Clear search" onClick={() => { setActivitySearch(''); setActivityPage(1); }} className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer"><X aria-hidden="true" className="h-3.5 w-3.5" /></button>}
+                </div>
+                {activityRangeLabel && <p role="status" className="text-[11px] text-slate-500">{activityRangeLabel} (WIB){!activityLoading && !activityError && ` · ${activityTotal} aktivitas · ${activityStartDate ? 'dari tanggal mulai' : 'terbaru lebih dulu'}`}</p>}
+              </div>
+              <div className="w-full overflow-x-auto rounded-md border border-slate-200 bg-white">
+              <table aria-label="Log Activity SMKI" className="w-full min-w-[1200px] table-fixed border-collapse text-left [&_th]:px-4 [&_th]:py-2.5 [&_th]:align-middle [&_td]:px-4 [&_td]:py-3 [&_td]:align-middle [&_td]:[overflow-wrap:anywhere]">
+              <colgroup>
+                <col style={{ width: "14%" }} />
+                <col style={{ width: "14%" }} />
+                <col style={{ width: "13%" }} />
+                <col style={{ width: "12%" }} />
+                <col style={{ width: "10%" }} />
+                <col style={{ width: "10%" }} />
+                <col style={{ width: "17%" }} />
+                <col style={{ width: "10%" }} />
+              </colgroup>
+              <thead style={{ fontFamily: "Arial, Helvetica, sans-serif", fontSize: "11px", fontWeight: 800, letterSpacing: "0.5px", color: "#64748b", background: "#f8fafc" }} className="[&_th]:font-extrabold [&_th]:whitespace-nowrap">
+              <tr className="border-b border-slate-200">
+                <th scope="col">EMPLOYEE&apos;S NAME</th>
+                <th scope="col">E-MAIL</th>
+                <th scope="col">DEPARTMENT</th>
+                <th scope="col">ROLE</th>
+                <th scope="col">IP ADDRESS</th>
+                <th scope="col">BROWSER</th>
+                <th scope="col">DESCRIPTION</th>
+                <th scope="col" aria-sort={activityStartDate ? 'ascending' : 'descending'} className="whitespace-nowrap">DATE TIME</th>
+              </tr>
+              </thead>
+              <tbody style={{ fontFamily: "Arial, Helvetica, sans-serif", fontSize: "12px", fontWeight: 400, color: "#1e293b" }} className="bg-white">
+              {activityLoading ? (
+                <tr><td colSpan={8}><div role="status" className="text-slate-500">Memuat Log Activity...</div></td></tr>
+              ) : activityError ? (
+                <tr><td colSpan={8}><div role="alert" className="text-red-600">
+                  <p>{activityError}</p>
+                  <button type="button" onClick={() => setActivityReload((value) => value + 1)} className="mt-2 cursor-pointer text-blue-600">Coba lagi</button>
+                </div></td></tr>
+              ) : activityLogs.length > 0 ? (
+                activityLogs.map((activity) => {
+                  const timestamp = new Date(activity.createdAt);
+                  return (
+                    <tr key={activity.id} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50">
+                      <td className="font-bold"><div className="flex items-center gap-2.5 min-w-0">
+                        <span aria-hidden="true" className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full bg-slate-300 text-[11px] font-bold text-slate-700">{activity.name.trim().charAt(0).toUpperCase() || '?'}</span>
+                        <span className="min-w-0">{activity.name}</span>
+                      </div></td>
+                      <td className="text-slate-500">{activity.email}</td>
+                      <td className="font-semibold text-slate-700">{activity.department}</td>
+                      <td className="font-semibold text-slate-700">{activity.role}</td>
+                      <td>{activity.ipAddress}</td>
+                      <td>{activity.userAgent}</td>
+                      <td className="whitespace-pre-line">{activity.description}</td>
+                      <td><div style={{ display: "flex", flexDirection: "column", whiteSpace: "nowrap" }}>
+                        <span>{activity.createdAt ? timestamp.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "Asia/Jakarta" }) : "-"}</span>
+                        <span>{activity.createdAt ? timestamp.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Jakarta" }) : "-"}</span>
+                      </div></td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr><td colSpan={8} className="text-slate-500">
+                  Tidak ada aktivitas yang sesuai dengan pencarian dan filter.
+                </td></tr>
+              )}
+              </tbody>
+            </table>
             </div>
-          ) : (
+            {!activityLoading && !activityError && (
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-white px-4 py-3 text-xs text-slate-600">
+                <p role="status">Menampilkan {activityTotal ? (activityPage - 1) * activityPageSize + 1 : 0}–{Math.min(activityPage * activityPageSize, activityTotal)} dari {activityTotal} aktivitas.</p>
+                <Pagination label="Pagination Log Activity" page={activityPage} totalPages={activityTotalPages} onPageChange={setActivityPage} />
+              </div>
+            )}
+          </div>
+        ) : (
           <div style={{ flex: 1, padding: "20px 24px", overflowY: "auto", boxSizing: "border-box" }}>
             
             {/* 2. TOMBOL FILTER (STYLE KAPSUL / OUTLINE SESUAI GAMBAR) */}
