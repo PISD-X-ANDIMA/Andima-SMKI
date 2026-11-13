@@ -97,16 +97,6 @@ function ActivityIcon() {
   );
 }
 
-function LoginIcon() {
-  return (
-    <svg viewBox="0 0 24 24" style={{ width: "20px", height: "20px", flexShrink: 0, fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }}>
-      <circle cx="12" cy="12" r="9" />
-      <circle cx="12" cy="9" r="2.5" />
-      <path d="M7.5 18c.7-2.8 2.2-4.2 4.5-4.2s3.8 1.4 4.5 4.2" />
-    </svg>
-  );
-}
-
 function EditIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" style={{ width: "18px", height: "18px", display: "block", color: "#475569", fill: "currentColor" }}>
@@ -606,29 +596,7 @@ export default function SmkiPage() {
                   <span>Log Activity</span>
                 </button>
 
-                {/* Submenu 3: Log Login */}
-                <button
-                  onClick={() => setActiveTab("log-login")}
-                  style={{
-                    width: "100%",
-                    padding: "10px 14px",
-                    border: 0,
-                    borderRadius: "10px",
-                    backgroundColor: activeTab === "log-login" ? "rgba(255, 255, 255, 0.15)" : "transparent",
-                    color: activeTab === "log-login" ? "#ffffff" : "#94a3b8",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "10px",
-                    fontSize: "13px",
-                    fontWeight: activeTab === "log-login" ? 700 : 500,
-                    cursor: "pointer",
-                    textAlign: "left",
-                    transition: "all 0.2s ease",
-                  }}
-                >
-                  <LoginIcon />
-                  <span>Log Login</span>
-                </button>
+
 
               </div>
             )}
@@ -655,7 +623,7 @@ export default function SmkiPage() {
               <span style={{ fontSize: "13px", fontWeight: 800, color: "#0f172a" }}>ANDIMA SMKI</span>
               <span style={{ color: "#cbd5e1" }}>|</span>
               <span style={{ fontSize: "12px", fontWeight: 600, color: "#64748b", whiteSpace: "nowrap" }}>
-                {activeTab === "log-activity" ? "Log Activity" : activeTab === "log-login" ? "Log Login" : "Account Maintains"}
+                {activeTab === "log-activity" ? "Log Activity" : "Account Maintains"}
               </span>
 
             </div>
